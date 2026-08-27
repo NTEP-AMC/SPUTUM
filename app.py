@@ -67,7 +67,8 @@ if st.sidebar.button("લૉગઆઉટ (Logout)"):
     st.rerun()
 
 # --- Google Sheets Connection ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1IQUtxVA1XMk_1PFAmMYTi-l3T4uMpobrXlCKAuXkTV4/edit"
+# અહી તમારા નવા સ્ક્રીનશોટ મુજબની નવી લિંક અપડેટ કરી છે
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1JQULxVA1XMk_1PEAmMYTJ-I3T4uMpobx1LCKAuXkTV4/edit"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 ZONES = ["WEST", "SOUTH", "SOUTH WEST", "NORTH WEST", "CENTRAL", "EAST", "NORTH"]
@@ -75,15 +76,17 @@ ZONES = ["WEST", "SOUTH", "SOUTH WEST", "NORTH WEST", "CENTRAL", "EAST", "NORTH"
 @st.cache_data(ttl=5)
 def load_transporters():
     try:
-        df = conn.read(spreadsheet=SHEET_URL, worksheet="TRANSPORTER NAME")
+        # શીટનું નામ TRANSPORTER_NAME (સ્પેસ વગર)
+        df = conn.read(spreadsheet=SHEET_URL, worksheet="TRANSPORTER_NAME")
         return df.dropna(how="all")
     except Exception as e:
-        st.error(f"⚠️ ગૂગલ શીટ (TRANSPORTER NAME) કનેક્ટ કરવામાં ભૂલ: {e}")
+        st.error(f"⚠️ ગૂગલ શીટ (TRANSPORTER_NAME) કનેક્ટ કરવામાં ભૂલ: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=5)
 def load_entries():
     try:
+        # શીટનું નામ ENTRY_DATA 
         df = conn.read(spreadsheet=SHEET_URL, worksheet="ENTRY_DATA")
         return df.dropna(how="all")
     except Exception as e:
@@ -94,7 +97,7 @@ transporter_df = load_transporters()
 transporter_list = transporter_df["NAME OF TRANSPORTER"].tolist() if (not transporter_df.empty and "NAME OF TRANSPORTER" in transporter_df.columns) else []
 entries_df = load_entries()
 
-# --- PDF Function (એમના એમ રહેશે) ---
+# --- PDF Function ---
 def generate_pdf(phi_name, tb_unit, month_name, approved_df):
     pdf_filename = "Approved_Sputum_Report.pdf"
     doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -159,7 +162,8 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
                 if new_name and new_ac:
                     new_row = pd.DataFrame({"NAME OF TRANSPORTER": [new_name.upper().strip()], "ACCOUNT NUMBER": [new_ac.strip()], "IFSC CODE": [new_ifsc.strip().upper()], "MOBILE NUMBER": [new_mobile.strip()], "TB UNIT": [new_tb_unit.strip().upper()], "PHI": [new_phi.strip().upper()]})
                     updated_transporters = pd.concat([transporter_df, new_row], ignore_index=True)
-                    conn.update(worksheet="TRANSPORTER NAME", data=updated_transporters)
+                    # અહી TRANSPORTER_NAME માં સુધારો કર્યો છે
+                    conn.update(worksheet="TRANSPORTER_NAME", data=updated_transporters)
                     st.success(f"✅ {new_name} સફળતાપૂર્વક ઉમેરાઈ ગયું છે!")
                     st.cache_data.clear()
                     st.rerun()
@@ -197,7 +201,6 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
 if st.session_state.role in ["ZONE", "ADMIN"]:
     st.title("✅ M.O. અપ્રૂવલ અને PDF જનરેશન")
     
-    # જો ZONE યુઝર હોય તો તેનો ટાર્ગેટ જ તેનો ઝોન છે, ADMIN હોય તો સિલેક્ટ કરવા દેવાનું
     if st.session_state.role == "ZONE":
         mo_zone = st.session_state.target
         st.info(f"તમે **{mo_zone}** ઝોન માટે લોગીન કર્યું છે.")
