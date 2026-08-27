@@ -41,7 +41,6 @@ if not st.session_state.logged_in:
         submit_login = st.form_submit_button("લૉગિન કરો")
         
         if submit_login:
-            # યુઝરનેમ અને પાસવર્ડ મેચ કરો
             user_match = users_df[(users_df['Username'] == uname) & (users_df['Password'] == pwd)]
             
             if not user_match.empty:
@@ -53,13 +52,12 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("❌ ખોટો આઈડી અથવા પાસવર્ડ! કૃપા કરીને ફરી પ્રયાસ કરો.")
-    st.stop() # જ્યાં સુધી લોગીન ન થાય ત્યાં સુધી એપ અહી જ અટકેલી રહેશે
+    st.stop()
 
 # ==========================================
 # 2. MAIN APP (After Login)
 # ==========================================
 
-# સાઈડબારમાં લોગીન વિગતો અને લોગઆઉટ બટન
 st.sidebar.title(f"સ્વાગત છે, {st.session_state.username}")
 st.sidebar.info(f"Role: {st.session_state.role} | Target: {st.session_state.target}")
 if st.sidebar.button("લૉગઆઉટ (Logout)"):
@@ -67,7 +65,6 @@ if st.sidebar.button("લૉગઆઉટ (Logout)"):
     st.rerun()
 
 # --- Google Sheets Connection ---
-# અહી તમારા નવા સ્ક્રીનશોટ મુજબની નવી લિંક અપડેટ કરી છે
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1JQULxVA1XMk_1PEAmMYTJ-I3T4uMpobx1LCKAuXkTV4/edit"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -76,7 +73,6 @@ ZONES = ["WEST", "SOUTH", "SOUTH WEST", "NORTH WEST", "CENTRAL", "EAST", "NORTH"
 @st.cache_data(ttl=5)
 def load_transporters():
     try:
-        # શીટનું નામ TRANSPORTER_NAME (સ્પેસ વગર)
         df = conn.read(spreadsheet=SHEET_URL, worksheet="TRANSPORTER_NAME")
         return df.dropna(how="all")
     except Exception as e:
@@ -86,7 +82,6 @@ def load_transporters():
 @st.cache_data(ttl=5)
 def load_entries():
     try:
-        # શીટનું નામ ENTRY_DATA 
         df = conn.read(spreadsheet=SHEET_URL, worksheet="ENTRY_DATA")
         return df.dropna(how="all")
     except Exception as e:
@@ -94,10 +89,19 @@ def load_entries():
         return pd.DataFrame()
 
 transporter_df = load_transporters()
-transporter_list = transporter_df["NAME OF TRANSPORTER"].tolist() if (not transporter_df.empty and "NAME OF TRANSPORTER" in transporter_df.columns) else []
 entries_df = load_entries()
 
-# --- PDF Function ---
+# --- ટ્રાન્સપોર્ટર સિલેક્શન લિસ્ટ (નામ + એકાઉન્ટ નંબર) ---
+transporter_list = []
+if not transporter_df.empty and "NAME OF TRANSPORTER" in transporter_df.columns:
+    if "ACCOUNT NUMBER" in transporter_df.columns:
+        # નામ અને એકાઉન્ટ નંબર જોડીને ડ્રોપડાઉન માટે લિસ્ટ બનાવો
+        transporter_df["Display_Name"] = transporter_df["NAME OF TRANSPORTER"].astype(str) + " - (A/c: " + transporter_df["ACCOUNT NUMBER"].astype(str) + ")"
+        transporter_list = transporter_df["Display_Name"].tolist()
+    else:
+        transporter_list = transporter_df["NAME OF TRANSPORTER"].tolist()
+
+# --- PDF Functions ---
 def generate_pdf(phi_name, tb_unit, month_name, approved_df):
     pdf_filename = "Approved_Sputum_Report.pdf"
     doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -135,6 +139,49 @@ def generate_pdf(phi_name, tb_unit, month_name, approved_df):
     doc.build(elements)
     return pdf_filename
 
+def generate_summary_pdf(tb_unit, month_name, approved_df):
+    pdf_filename = "Summary_Sputum_Report.pdf"
+    doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
+    try:
+        pdfmetrics.registerFont(TTFont('Shruti', 'shruti.ttf'))
+        font_name = 'Shruti'
+    except:
+        font_name = 'Helvetica'
+
+    title_style = ParagraphStyle(name='TitleStyle', fontName=font_name, fontSize=16, textColor=colors.teal, alignment=0)
+    summary_style = ParagraphStyle(name='SummaryStyle', fontName=font_name, fontSize=22, alignment=1, spaceAfter=20)
+    header_style = ParagraphStyle(name='HeaderStyle', fontName=font_name, fontSize=12, leading=16)
+
+    elements.append(Paragraph("<b>DMC સ્પુટમ ટ્રાન્સપોર્ટેશન રજિસ્ટર</b>", title_style))
+    elements.append(Spacer(1, 15))
+    elements.append(Paragraph("<b>SUMMARY</b>", summary_style))
+    elements.append(Paragraph(f"<b>MONTH:</b> {month_name} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>TU & DMC:</b> {tb_unit}", header_style))
+    elements.append(Spacer(1, 20))
+    
+    table_data = [["ક્રમ", "સ્પુટમ ટ્રાન્સપોટરનું નામ", "કેટલા સ્પુટમ મોકલ્યા", "રકમ રૂ."]]
+    
+    approved_df['Sample_Count'] = pd.to_numeric(approved_df['Sample_Count'], errors='coerce').fillna(0)
+    summary_df = approved_df.groupby("Transporter_Name")["Sample_Count"].sum().reset_index()
+    
+    for index, row in summary_df.iterrows():
+        table_data.append([str(index + 1), str(row["Transporter_Name"]), str(int(row["Sample_Count"])), ""])
+        
+    table = Table(table_data, colWidths=[50, 200, 150, 100])
+    table.setStyle(TableStyle([
+        ('FONTNAME', (0,0), (-1,-1), font_name), ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 1, colors.black), ('BOTTOMPADDING', (0,0), (-1,-1), 8), ('TOPPADDING', (0,0), (-1,-1), 8),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 60))
+    
+    footer_data = [["LT", "STLS", "M.O", "MO. SUP"]]
+    footer_table = Table(footer_data, colWidths=[120, 120, 120, 120])
+    footer_table.setStyle(TableStyle([('FONTNAME', (0,0), (-1,-1), font_name), ('ALIGN', (0,0), (-1,-1), 'CENTER')]))
+    elements.append(footer_table)
+    doc.build(elements)
+    return pdf_filename
+
 # ==========================================
 # 3. ROLE BASED DASHBOARD
 # ==========================================
@@ -162,7 +209,6 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
                 if new_name and new_ac:
                     new_row = pd.DataFrame({"NAME OF TRANSPORTER": [new_name.upper().strip()], "ACCOUNT NUMBER": [new_ac.strip()], "IFSC CODE": [new_ifsc.strip().upper()], "MOBILE NUMBER": [new_mobile.strip()], "TB UNIT": [new_tb_unit.strip().upper()], "PHI": [new_phi.strip().upper()]})
                     updated_transporters = pd.concat([transporter_df, new_row], ignore_index=True)
-                    # અહી TRANSPORTER_NAME માં સુધારો કર્યો છે
                     conn.update(worksheet="TRANSPORTER_NAME", data=updated_transporters)
                     st.success(f"✅ {new_name} સફળતાપૂર્વક ઉમેરાઈ ગયું છે!")
                     st.cache_data.clear()
@@ -175,7 +221,7 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
         col1, col2 = st.columns(2)
         with col1:
             entry_date = st.date_input("તારીખ", date.today())
-            t_name = st.selectbox("સ્પુટમ ટ્રાન્સપોર્ટરનું નામ", transporter_list)
+            t_name_display = st.selectbox("સ્પુટમ ટ્રાન્સપોર્ટરનું નામ અને એકાઉન્ટ નંબર પસંદ કરો", transporter_list)
             l_num = st.text_input("લેબ નંબર")
         with col2:
             zone = st.selectbox("તમારો ઝોન પસંદ કરો", ZONES)
@@ -183,8 +229,11 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
             s_count = st.number_input("સ્પુટમની સંખ્યા", min_value=1)
             
         if st.form_submit_button("સાચવો (Save as Pending)"):
-            if t_name and l_num:
-                new_entry = pd.DataFrame({"Date": [entry_date.strftime("%d-%m-%Y")], "Zone": [zone], "Transporter_Name": [t_name], "Lab_Number": [l_num], "Route": [route], "Sample_Count": [s_count], "Status": ["Pending"]})
+            if t_name_display and l_num:
+                # ડ્રોપડાઉનમાંથી માત્ર નામ અલગ કરવા માટે
+                actual_t_name = t_name_display.split(" - (A/c:")[0] if " - (A/c:" in t_name_display else t_name_display
+                
+                new_entry = pd.DataFrame({"Date": [entry_date.strftime("%d-%m-%Y")], "Zone": [zone], "Transporter_Name": [actual_t_name], "Lab_Number": [l_num], "Route": [route], "Sample_Count": [s_count], "Status": ["Pending"]})
                 updated_entries = pd.concat([entries_df, new_entry], ignore_index=True)
                 conn.update(worksheet="ENTRY_DATA", data=updated_entries)
                 st.success("એન્ટ્રી M.O. ના અપ્રૂવલ માટે મોકલાઈ ગઈ છે!")
@@ -192,7 +241,6 @@ if st.session_state.role in ["TB_UNIT", "ADMIN"]:
                 st.rerun()
             else:
                 st.error("માહિતી પૂરી ભરો.")
-
     st.divider()
 
 # ------------------------------------------
@@ -240,11 +288,24 @@ if st.session_state.role in ["ZONE", "ADMIN"]:
             with col1: phi = st.text_input("NAME OF PHI")
             with col2: tb = st.text_input("NAME OF TB UNIT")
             with col3: month = st.text_input("MONTH")
-                
-            if st.button("📄 Generate PDF"):
-                if phi and tb and month:
-                    pdf_file_path = generate_pdf(phi, tb, month, approved_data)
-                    with open(pdf_file_path, "rb") as pdf_file:
-                        st.download_button(label="⬇️ PDF ડાઉનલોડ કરો", data=pdf_file, file_name=f"{mo_zone}_Sputum_Report_{month}.pdf", mime="application/pdf")
-                else:
-                    st.error("કૃપા કરીને PHI, TB UNIT અને MONTH ની વિગતો ભરો.")
+            
+            st.write("---")
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                if st.button("📄 Generate Detailed PDF"):
+                    if phi and tb and month:
+                        pdf_file_path = generate_pdf(phi, tb, month, approved_data)
+                        with open(pdf_file_path, "rb") as pdf_file:
+                            st.download_button(label="⬇️ વિગતવાર PDF ડાઉનલોડ કરો", data=pdf_file, file_name=f"{mo_zone}_Detailed_Report_{month}.pdf", mime="application/pdf")
+                    else:
+                        st.error("કૃપા કરીને PHI, TB UNIT અને MONTH ની વિગતો ભરો.")
+                        
+            with col_btn2:
+                if st.button("📊 Generate SUMMARY PDF"):
+                    if tb and month:
+                        pdf_file_path = generate_summary_pdf(tb, month, approved_data.copy())
+                        with open(pdf_file_path, "rb") as pdf_file:
+                            st.download_button(label="⬇️ SUMMARY PDF ડાઉનલોડ કરો", data=pdf_file, file_name=f"{mo_zone}_Summary_{month}.pdf", mime="application/pdf")
+                    else:
+                        st.error("કૃપા કરીને TB UNIT અને MONTH ની વિગતો ભરો.")
